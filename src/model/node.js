@@ -185,6 +185,10 @@ export default class Node {
 		return root;
 	}
 
+	get isRoot() {
+		return this == this.root;
+	}
+
 	/**
 	 * {@link module:engine/model/document~Document Document} that owns this node or `null` if the node has no parent or is inside
 	 * a {@link module:engine/model/documentfragment~DocumentFragment DocumentFragment}.

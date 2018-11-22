@@ -466,6 +466,12 @@ export default class Writer {
 
 		const position = Position._createAt( itemOrPosition, offset );
 
+		if ( position.isEqual( range.start ) ) {
+			return;
+		}
+
+		this._shrinkIntersectingMarkers( range );
+
 		if ( !isSameTree( range.root, position.root ) ) {
 			/**
 			 * Range is going to be moved within not the same document. Please use
@@ -491,17 +497,31 @@ export default class Writer {
 	remove( itemOrRange ) {
 		this._assertWriterUsedCorrectly();
 
-		if ( itemOrRange instanceof Range ) {
-			// The array is reversed, so the ranges to remove are in correct order and do not have to be updated.
-			const ranges = itemOrRange.getMinimalFlatRanges().reverse();
+		let rangeToRemove = itemOrRange instanceof Range ? itemOrRange : Range._createOn( itemOrRange );
 
-			for ( const flat of ranges ) {
-				applyRemoveOperation( flat.start, flat.end.offset - flat.start.offset, this.batch, this.model );
+		this._shrinkIntersectingMarkers( rangeToRemove );
+
+		const ranges = rangeToRemove.getMinimalFlatRanges().reverse();
+
+		for ( const flat of ranges ) {
+			applyRemoveOperation( flat.start, flat.end.offset - flat.start.offset, this.batch, this.model );
+		}
+	}
+
+	_shrinkIntersectingMarkers( rangeToRemove ) {
+		for ( const marker of this.model.markers ) {
+			const markerRange = marker.getRange();
+
+			const isAffected = rangeToRemove.containsPosition( markerRange.start ) ||
+					rangeToRemove.start.isEqual( markerRange.start ) ||
+					rangeToRemove.containsPosition( markerRange.end ) ||
+					rangeToRemove.end.isEqual( markerRange.end );
+
+			if ( isAffected && !rangeToRemove.containsRange( markerRange ) ) {
+				const newRange = markerRange.getDifference( rangeToRemove )[ 0 ];
+
+				this.updateMarker( marker.name, { range: markerRange } );
 			}
-		} else {
-			const howMany = itemOrRange.is( 'text' ) ? itemOrRange.offsetSize : 1;
-
-			applyRemoveOperation( Position._createBefore( itemOrRange ), howMany, this.batch, this.model );
 		}
 	}
 
@@ -518,6 +538,8 @@ export default class Writer {
 
 		const nodeBefore = position.nodeBefore;
 		const nodeAfter = position.nodeAfter;
+
+		this._collapseMarkersOnBoundaries( position );
 
 		if ( !( nodeBefore instanceof Element ) ) {
 			/**
@@ -541,6 +563,22 @@ export default class Writer {
 			this._mergeDetached( position );
 		} else {
 			this._merge( position );
+		}
+	}
+
+	_collapseMarkersOnBoundaries( position ) {
+		for ( const marker of this.model.markers ) {
+			const markerRange = marker.getRange();
+
+			const elementBefore = position.nodeBefore;
+			const elementAfter = position.nodeAfter;
+
+			const affectedOnLeft = markerRange.start.parent == elementBefore && markerRange.start.isAtEnd;
+			const affectedOnRight = markerRange.end.parent == elementAfter && markerRange.end.offset == 0;
+
+			if ( affectedOnLeft || affectedOnRight ) {
+				this.updateMarker( marker.name, { range: markerRange } );
+			}
 		}
 	}
 
